@@ -5,7 +5,7 @@ from io import BytesIO
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="Advanced Per-Unit Calculator",
+    page_title="Transmission Line Per-Unit Calculator",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -56,7 +56,7 @@ def from_pu(pu_value, Z_base=None, I_base=None, quantity_type="Impedance"):
 
 # --- MAIN APP ---
 load_css()
-st.title("⚡ Advanced Bi-Directional Per-Unit Calculator for Transmission Lines")
+st.title("⚡ Transmission Line Per-Unit Calculator (Multi-Line)")
 
 # --- System Base Values ---
 st.subheader("System Base Values")
@@ -67,15 +67,16 @@ V_base = col2.number_input("Base Voltage (V_base, Line-to-Line kV)", min_value=0
                            help="System base voltage in kV")
 
 Z_base, I_base = calculate_base_values(S_base, V_base)
-
 with st.expander("Derived Base Values", expanded=True):
     st.metric("Base Impedance Z_base (Ω)", f"{Z_base:.4f}")
     st.metric("Base Current I_base (kA)", f"{I_base:.4f}")
 
 st.markdown("---")
-st.subheader("Transmission Line Electrical Quantities")
+st.subheader("Transmission Lines Input")
 
-# --- Sequence Selection ---
+# --- Multiple Lines Input ---
+num_lines = st.number_input("Number of Lines", min_value=1, max_value=50, value=1, step=1)
+
 sequences = st.multiselect(
     "Select Sequence(s) to Calculate",
     ["Positive", "Negative", "Zero"],
@@ -83,68 +84,61 @@ sequences = st.multiselect(
     help="Choose sequence type for R, X, B, Voltage, and Current calculations"
 )
 
-# --- Bi-directional Mode ---
 calc_mode = st.radio(
     "Input Mode",
     ["Actual → PU", "PU → Actual"],
     help="Choose if you are entering actual values or PU values"
 )
 
-# --- Quantity Input ---
 quantities = ["Resistance", "Reactance", "Susceptance", "Voltage", "Current"]
 per_km = st.checkbox("Input values as per km?", help="Check if values are given per km; will multiply by line length")
 if per_km:
     line_length = st.number_input("Line Length (km)", min_value=0.1, value=10.0, format="%.2f")
 
-# --- Input Section ---
-results = {}
-for qty in quantities:
-    st.markdown(f"**{qty} Input**")
-    results[qty] = {}
-    for seq in sequences:
-        if calc_mode == "Actual → PU":
-            if per_km and qty not in ["Voltage", "Current"]:
-                val = st.number_input(f"{qty} ({seq}) per km", min_value=0.0, value=0.05, format="%.6f")
-                actual_val = val * line_length
-            else:
-                actual_val = st.number_input(f"{qty} ({seq}) total value", min_value=0.0, value=0.5, format="%.6f")
-            pu_val = to_pu(actual_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-        else:  # PU → Actual
-            pu_val = st.number_input(f"{qty} ({seq}) Per-Unit Value", min_value=0.0, value=0.05, format="%.6f")
-            actual_val = from_pu(pu_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-        results[qty][seq] = {"Actual": actual_val, "PU": pu_val}
+# --- Input Section for Multiple Lines ---
+results = []
+for line_idx in range(1, num_lines + 1):
+    st.markdown(f"### Line {line_idx}")
+    line_result = {"Line": line_idx}
+    for qty in quantities:
+        for seq in sequences:
+            key = f"{qty}_{seq}_line{line_idx}"
+            if calc_mode == "Actual → PU":
+                if per_km and qty not in ["Voltage", "Current"]:
+                    val = st.number_input(f"{qty} ({seq}) per km (Line {line_idx})", min_value=0.0, value=0.05, format="%.6f", key=key)
+                    actual_val = val * line_length
+                else:
+                    actual_val = st.number_input(f"{qty} ({seq}) total value (Line {line_idx})", min_value=0.0, value=0.5, format="%.6f", key=key)
+                pu_val = to_pu(actual_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
+            else:  # PU → Actual
+                pu_val = st.number_input(f"{qty} ({seq}) PU value (Line {line_idx})", min_value=0.0, value=0.05, format="%.6f", key=key)
+                actual_val = from_pu(pu_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
+            line_result[f"{qty}_{seq}_Actual"] = actual_val
+            line_result[f"{qty}_{seq}_PU"] = pu_val
+    results.append(line_result)
 
 # --- Display & Export Results ---
-if st.button("Calculate Values"):
-    st.subheader("Results")
-    df_data = []
-    for qty in quantities:
-        st.markdown(f"### {qty}")
-        for seq in sequences:
-            actual = results[qty][seq]["Actual"]
-            pu = results[qty][seq]["PU"]
-            st.markdown(f"<div class='result-box'>{seq} Sequence: Actual = {actual:.6f}, Per-Unit = {pu:.6f} pu</div>", unsafe_allow_html=True)
-            df_data.append({"Quantity": qty, "Sequence": seq, "Actual Value": actual, "Per-Unit Value": pu})
+if st.button("Calculate & Export"):
+    df = pd.DataFrame(results)
+    st.subheader("Results Table")
+    st.dataframe(df)
 
-    # --- Create DataFrame ---
-    df = pd.DataFrame(df_data)
-
-    # --- CSV Download ---
+    # CSV download
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="Download as CSV",
+        label="Download CSV",
         data=csv,
-        file_name='pu_results.csv',
+        file_name='pu_results_multiline.csv',
         mime='text/csv'
     )
 
-    # --- Excel Download ---
+    # Excel download
     towrite = BytesIO()
     df.to_excel(towrite, index=False, engine='openpyxl')
     towrite.seek(0)
     st.download_button(
-        label="Download as Excel",
+        label="Download Excel",
         data=towrite,
-        file_name='pu_results.xlsx',
+        file_name='pu_results_multiline.xlsx',
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
