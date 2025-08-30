@@ -32,39 +32,6 @@ UNIT_CATEGORIES = {
     }
 }
 
-# --- BASE VALUE CALCULATION ---
-def calculate_base_values(S_base, V_base):
-    Z_base = (V_base ** 2) / S_base
-    I_base = S_base / (math.sqrt(3) * V_base)
-    return Z_base, I_base
-
-# --- PER UNIT CALCULATION ---
-def to_pu(value, Z_base=None, I_base=None, quantity_type="Impedance"):
-    if quantity_type in ["Resistance", "Reactance", "Impedance"]:
-        return value / Z_base if Z_base else 0
-    elif quantity_type == "Susceptance":
-        B_base = 1 / Z_base if Z_base else 0
-        return value / B_base if B_base else 0
-    elif quantity_type == "Voltage":
-        return value / V_base
-    elif quantity_type == "Current":
-        return value / I_base
-    else:
-        return 0
-
-def from_pu(pu_value, Z_base=None, I_base=None, quantity_type="Impedance"):
-    if quantity_type in ["Resistance", "Reactance", "Impedance"]:
-        return pu_value * Z_base if Z_base else 0
-    elif quantity_type == "Susceptance":
-        B_base = 1 / Z_base if Z_base else 0
-        return pu_value * B_base if B_base else 0
-    elif quantity_type == "Voltage":
-        return pu_value * V_base
-    elif quantity_type == "Current":
-        return pu_value * I_base
-    else:
-        return 0
-
 unit_labels = {
     "Resistance": "Ω",
     "Reactance": "Ω",
@@ -72,6 +39,39 @@ unit_labels = {
     "Voltage": "kV",
     "Current": "kA"
 }
+
+# --- BASE VALUE CALCULATION ---
+def calculate_base_values(S_base, V_base):
+    Z_base = (V_base ** 2) / S_base
+    I_base = S_base / (math.sqrt(3) * V_base)
+    return Z_base, I_base
+
+# --- PER UNIT CALCULATION ---
+def to_pu(value, Z_base=None, I_base=None, V_base=None, quantity_type="Impedance"):
+    if quantity_type in ["Resistance", "Reactance", "Impedance"]:
+        return value / Z_base if Z_base else 0
+    elif quantity_type == "Susceptance":
+        B_base = 1 / Z_base if Z_base else 0
+        return value / B_base if B_base else 0
+    elif quantity_type == "Voltage":
+        return value / V_base if V_base else 0
+    elif quantity_type == "Current":
+        return value / I_base if I_base else 0
+    else:
+        return 0
+
+def from_pu(pu_value, Z_base=None, I_base=None, V_base=None, quantity_type="Impedance"):
+    if quantity_type in ["Resistance", "Reactance", "Impedance"]:
+        return pu_value * Z_base if Z_base else 0
+    elif quantity_type == "Susceptance":
+        B_base = 1 / Z_base if Z_base else 0
+        return pu_value * B_base if B_base else 0
+    elif quantity_type == "Voltage":
+        return pu_value * V_base if V_base else 0
+    elif quantity_type == "Current":
+        return pu_value * I_base if I_base else 0
+    else:
+        return 0
 
 def highlight_pu(val):
     try:
@@ -84,16 +84,36 @@ def highlight_pu(val):
         pass
     return ''
 
+# --- CARD STYLE DISPLAY ---
+def render_per_unit_cards(df, sequences):
+    st.subheader("📊 Line Results (Card View)")
+    for idx, row in df.iterrows():
+        st.markdown(f"### 🏗️ Line {row['Line']}")
+        for seq in sequences:
+            st.markdown(f"<div class='sequence-header'>{seq} Sequence</div>", unsafe_allow_html=True)
+            cols_html = ""
+            for qty in ["Resistance", "Reactance", "Susceptance", "Voltage", "Current"]:
+                actual = row[f"{qty}_{seq}_Actual ({unit_labels[qty]})"]
+                pu = row[f"{qty}_{seq}_PU (pu)"]
+                color = "#ccffcc" if 0.05 <= pu <= 1.2 else "#ffcccc"
+                cols_html += f"""
+                    <div style="display:inline-block; width:18%; margin:1%; padding:10px; border-radius:10px;
+                                background-color:{color}; text-align:center;">
+                        <b>{qty}</b><br>
+                        {actual:.4f} {unit_labels[qty]}<br>
+                        {pu:.4f} pu
+                    </div>
+                """
+            st.markdown(cols_html, unsafe_allow_html=True)
+
 # --- ENHANCED PER-UNIT CALCULATOR ---
 def render_per_unit_calculator():
     st.header("⚡ Transmission Line Per-Unit Calculator")
     st.info("Calculate Resistance, Reactance, Susceptance, Voltage, Current in PU and actual values.")
 
     col1, col2 = st.columns(2)
-    S_base = col1.number_input("Base MVA (S_base)", min_value=0.1, value=100.0, format="%.2f",
-                               help="System base power in MVA.")
-    V_base = col2.number_input("Base Voltage (V_base, kV)", min_value=0.1, value=13.8, format="%.2f",
-                               help="System base voltage in kV.")
+    S_base = col1.number_input("Base MVA (S_base)", min_value=0.1, value=100.0, format="%.2f")
+    V_base = col2.number_input("Base Voltage (V_base, kV)", min_value=0.1, value=13.8, format="%.2f")
     
     Z_base, I_base = calculate_base_values(S_base, V_base)
     st.metric("Base Impedance Z_base (Ω)", f"{Z_base:.4f}")
@@ -103,57 +123,31 @@ def render_per_unit_calculator():
     sequences = st.multiselect("Select Sequence(s)", ["Positive", "Negative", "Zero"], default=["Positive"])
     calc_mode = st.radio("Input Mode", ["Actual → PU", "PU → Actual"])
     per_km = st.checkbox("Input values as per km?")
-    line_length = 1
-    if per_km:
-        line_length = st.number_input("Line Length (km)", min_value=0.1, value=10.0, format="%.2f")
+    line_length = st.number_input("Line Length (km)", min_value=0.1, value=10.0) if per_km else 1.0
 
     results = []
     for line_idx in range(1, num_lines + 1):
-        st.markdown(f"### 🏗️ Line {line_idx}")
-        tabs = st.tabs(sequences)
         line_result = {"Line": line_idx}
-
-        for tab_idx, seq in enumerate(sequences):
-            with tabs[tab_idx]:
-                st.markdown(f"#### {seq} Sequence ⚡")
-                cols = st.columns(3)
-                for i, qty in enumerate(["Resistance","Reactance","Susceptance"]):
-                    label_unit = unit_labels[qty]
-                    key = f"{qty}_{seq}_line{line_idx}"
-                    if calc_mode == "Actual → PU":
-                        val = cols[i].number_input(f"{qty} [{label_unit}]", min_value=0.0, value=0.5, format="%.6f", key=key,
-                                                    help=f"{qty} in {label_unit}")
-                        actual_val = val * line_length if per_km else val
-                        pu_val = to_pu(actual_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-                    else:
-                        pu_val = cols[i].number_input(f"{qty} PU", min_value=0.0, value=0.05, format="%.6f", key=key,
-                                                      help=f"{qty} in per-unit")
-                        actual_val = from_pu(pu_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-                    line_result[f"{qty}_{seq}_Actual ({label_unit})"] = actual_val
-                    line_result[f"{qty}_{seq}_PU (pu)"] = pu_val
-
-                cols2 = st.columns(2)
-                for j, qty in enumerate(["Voltage","Current"]):
-                    label_unit = unit_labels[qty]
-                    key2 = f"{qty}_{seq}_line{line_idx}"
-                    if calc_mode == "Actual → PU":
-                        val = cols2[j].number_input(f"{qty} [{label_unit}]", min_value=0.0, value=V_base if qty=="Voltage" else 0.5,
-                                                    format="%.4f", key=key2, help=f"{qty} in {label_unit}")
-                        actual_val = val
-                        pu_val = to_pu(actual_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-                    else:
-                        pu_val = cols2[j].number_input(f"{qty} PU", min_value=0.0, value=0.05, format="%.6f", key=key2,
-                                                      help=f"{qty} in per-unit")
-                        actual_val = from_pu(pu_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-                    line_result[f"{qty}_{seq}_Actual ({label_unit})"] = actual_val
-                    line_result[f"{qty}_{seq}_PU (pu)"] = pu_val
+        for seq in sequences:
+            for qty in ["Resistance","Reactance","Susceptance","Voltage","Current"]:
+                key = f"{qty}_{seq}_line{line_idx}"
+                label_unit = unit_labels[qty]
+                if calc_mode == "Actual → PU":
+                    val = st.number_input(f"{qty} {seq} [{label_unit}] (Line {line_idx})", min_value=0.0,
+                                          value=0.5, key=key)
+                    actual_val = val * line_length if qty in ["Resistance","Reactance","Susceptance"] and per_km else val
+                    pu_val = to_pu(actual_val, Z_base=Z_base, I_base=I_base, V_base=V_base, quantity_type=qty)
+                else:
+                    pu_val = st.number_input(f"{qty} {seq} PU (Line {line_idx})", min_value=0.0,
+                                             value=0.05, key=key)
+                    actual_val = from_pu(pu_val, Z_base=Z_base, I_base=I_base, V_base=V_base, quantity_type=qty)
+                line_result[f"{qty}_{seq}_Actual ({label_unit})"] = actual_val
+                line_result[f"{qty}_{seq}_PU (pu)"] = pu_val
         results.append(line_result)
 
-    if st.button("Calculate, Highlight & Export"):
+    if st.button("Calculate & Export"):
         df = pd.DataFrame(results)
-        st.subheader("Results Table")
-        st.dataframe(df.style.applymap(highlight_pu, subset=[c for c in df.columns if "_PU" in c]))
-
+        render_per_unit_cards(df, sequences)
         st.subheader("Summary Metrics")
         quantities = ["Resistance","Reactance","Susceptance","Voltage","Current"]
         summary_data = []
@@ -173,7 +167,6 @@ def render_per_unit_calculator():
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df)
 
-        # Download buttons
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("Download CSV", data=csv, file_name='pu_results.csv', mime='text/csv')
         towrite = BytesIO()
@@ -181,8 +174,7 @@ def render_per_unit_calculator():
             df.to_excel(writer, index=False, sheet_name="Line Data")
             summary_df.to_excel(writer, index=False, sheet_name="Summary Metrics")
         towrite.seek(0)
-        st.download_button("Download Excel", data=towrite, file_name='pu_results.xlsx',
-                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        st.download_button("Download Excel", data=towrite, file_name='pu_results.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 # --- REACTANCE & SUSCEPTANCE CALCULATOR ---
 def render_reactance_susceptance_calculator():
@@ -194,7 +186,7 @@ def render_reactance_susceptance_calculator():
     ], horizontal=True)
 
     if calc_mode == "Inductive Reactance (from L, f)":
-        L = st.number_input("Enter Inductance (H)", min_value=0.0, value=0.01, format="%.6f", help="XL = 2πfL")
+        L = st.number_input("Enter Inductance (H)", min_value=0.0, value=0.01, format="%.6f")
         f = st.number_input("Enter Frequency (Hz)", min_value=0.0, value=50.0, format="%.2f")
         Xl = 2 * math.pi * f * L
         st.markdown(f'**Inductive Reactance Xₗ = {Xl:.4f} Ω**')
@@ -241,46 +233,16 @@ def render_capacitance_converter():
     result = base_val / category["units"][to_unit]
     st.markdown(f'**{value} {from_unit} = {result:.8f} {to_unit}**')
 
-# --- EXAMPLE LOAD ---
-def render_example_load():
-    st.header("📘 Example Transmission Line Load")
-    st.info("Pre-filled typical transmission line values for quick testing.")
-
-    S_base = 100
-    V_base = 13.8
-    Z_base, I_base = calculate_base_values(S_base, V_base)
-
-    example_results = [
-        {"Line": 1, "Sequence": "Positive", "Resistance_Actual (Ω)": 0.2,
-         "Reactance_Actual (Ω)": 0.4, "Susceptance_Actual (S)": 0.0001},
-        {"Line": 2, "Sequence": "Positive", "Resistance_Actual (Ω)": 0.25,
-         "Reactance_Actual (Ω)": 0.45, "Susceptance_Actual (S)": 0.00012}
-    ]
-
-    for row in example_results:
-        row["Resistance_PU (pu)"] = to_pu(row["Resistance_Actual (Ω)"], Z_base=Z_base, quantity_type="Resistance")
-        row["Reactance_PU (pu)"] = to_pu(row["Reactance_Actual (Ω)"], Z_base=Z_base, quantity_type="Reactance")
-        row["Susceptance_PU (pu)"] = to_pu(row["Susceptance_Actual (S)"], Z_base=Z_base, quantity_type="Susceptance")
-
-    df_example = pd.DataFrame(example_results)
-    st.dataframe(df_example.style.applymap(highlight_pu, subset=[c for c in df_example.columns if "_PU" in c]))
-
-    csv = df_example.to_csv(index=False).encode('utf-8')
-    st.download_button("Download Example CSV", data=csv, file_name='example_pu_results.csv', mime='text/csv')
-
-
-# --- MAIN APP ---
+# --- MAIN APP LAYOUT ---
 load_css()
-st.sidebar.title("Navigation")
+st.title("🌟 Electrical Engineering Toolkit")
+
 app_mode = st.sidebar.radio(
-    "Choose a Tool",
-    ["⚡ Per-Unit Calculator", "⚛️ Reactance & Susceptance", "💡 Capacitance Converter"]
+    "Navigation",
+    ["⚡ Per-Unit System", "⚛️ Reactance & Susceptance", "💡 Capacitance Converter"]
 )
 
-if app_mode == "⚡ Per-Unit Calculator":
-    show_example = st.sidebar.checkbox("Show Example Load", value=False)
-    if show_example:
-        render_example_load()
+if app_mode == "⚡ Per-Unit System":
     render_per_unit_calculator()
 elif app_mode == "⚛️ Reactance & Susceptance":
     render_reactance_susceptance_calculator()
