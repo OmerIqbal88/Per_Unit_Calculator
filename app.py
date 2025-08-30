@@ -56,7 +56,7 @@ def from_pu(pu_value, Z_base=None, I_base=None, quantity_type="Impedance"):
 
 # --- MAIN APP ---
 load_css()
-st.title("⚡ Transmission Line Per-Unit Calculator (Multi-Line)")
+st.title("⚡ Transmission Line Per-Unit Calculator (Multi-Line & Summary)")
 
 # --- System Base Values ---
 st.subheader("System Base Values")
@@ -117,13 +117,32 @@ for line_idx in range(1, num_lines + 1):
             line_result[f"{qty}_{seq}_PU"] = pu_val
     results.append(line_result)
 
-# --- Display & Export Results ---
+# --- Display & Export Results with Summary Metrics ---
 if st.button("Calculate & Export"):
     df = pd.DataFrame(results)
     st.subheader("Results Table")
     st.dataframe(df)
 
-    # CSV download
+    # --- Summary Metrics ---
+    st.subheader("Summary Metrics (Per-Unit Values)")
+    summary_data = []
+    for qty in quantities:
+        for seq in sequences:
+            col_name = f"{qty}_{seq}_PU"
+            max_val = df[col_name].max()
+            min_val = df[col_name].min()
+            avg_val = df[col_name].mean()
+            summary_data.append({
+                "Quantity": qty,
+                "Sequence": seq,
+                "Max PU": max_val,
+                "Min PU": min_val,
+                "Average PU": avg_val
+            })
+    summary_df = pd.DataFrame(summary_data)
+    st.dataframe(summary_df)
+
+    # --- CSV download ---
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Download CSV",
@@ -132,12 +151,14 @@ if st.button("Calculate & Export"):
         mime='text/csv'
     )
 
-    # Excel download
+    # --- Excel download (includes summary) ---
     towrite = BytesIO()
-    df.to_excel(towrite, index=False, engine='openpyxl')
+    with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name="Line Data")
+        summary_df.to_excel(writer, index=False, sheet_name="PU Summary")
     towrite.seek(0)
     st.download_button(
-        label="Download Excel",
+        label="Download Excel (with Summary)",
         data=towrite,
         file_name='pu_results_multiline.xlsx',
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
