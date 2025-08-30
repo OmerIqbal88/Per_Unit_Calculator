@@ -54,22 +54,29 @@ def from_pu(pu_value, Z_base=None, I_base=None, quantity_type="Impedance"):
     else:
         return 0
 
+# --- UNIT LABELS ---
+unit_labels = {
+    "Resistance": "Ω",
+    "Reactance": "Ω",
+    "Susceptance": "S",
+    "Voltage": "kV",
+    "Current": "kA"
+}
+
 # --- MAIN APP ---
 load_css()
-st.title("⚡ Transmission Line Per-Unit Calculator (Multi-Line & Summary)")
+st.title("⚡ Transmission Line Per-Unit Calculator (Multi-Line)")
 
 # --- System Base Values ---
 st.subheader("System Base Values")
 col1, col2 = st.columns(2)
-S_base = col1.number_input("Base MVA (S_base)", min_value=0.1, value=100.0, format="%.2f",
-                           help="System base power in MVA")
-V_base = col2.number_input("Base Voltage (V_base, Line-to-Line kV)", min_value=0.1, value=13.8, format="%.2f",
-                           help="System base voltage in kV")
+S_base = col1.number_input("Base MVA (S_base)", min_value=0.1, value=100.0, format="%.2f", help="System base power in MVA")
+V_base = col2.number_input("Base Voltage (V_base, Line-to-Line kV)", min_value=0.1, value=13.8, format="%.2f", help="System base voltage in kV")
 
 Z_base, I_base = calculate_base_values(S_base, V_base)
 with st.expander("Derived Base Values", expanded=True):
-    st.metric("Base Impedance Z_base (Ω)", f"{Z_base:.4f}")
-    st.metric("Base Current I_base (kA)", f"{I_base:.4f}")
+    st.metric("Base Impedance Z_base (Ω)", f"{Z_base:.4f} Ω")
+    st.metric("Base Current I_base (kA)", f"{I_base:.4f} kA")
 
 st.markdown("---")
 st.subheader("Transmission Lines Input")
@@ -103,18 +110,19 @@ for line_idx in range(1, num_lines + 1):
     for qty in quantities:
         for seq in sequences:
             key = f"{qty}_{seq}_line{line_idx}"
+            label_unit = unit_labels[qty]
             if calc_mode == "Actual → PU":
                 if per_km and qty not in ["Voltage", "Current"]:
-                    val = st.number_input(f"{qty} ({seq}) per km (Line {line_idx})", min_value=0.0, value=0.05, format="%.6f", key=key)
+                    val = st.number_input(f"{qty} ({seq}) per km [{label_unit}] (Line {line_idx})", min_value=0.0, value=0.05, format="%.6f", key=key)
                     actual_val = val * line_length
                 else:
-                    actual_val = st.number_input(f"{qty} ({seq}) total value (Line {line_idx})", min_value=0.0, value=0.5, format="%.6f", key=key)
+                    actual_val = st.number_input(f"{qty} ({seq}) total value [{label_unit}] (Line {line_idx})", min_value=0.0, value=0.5, format="%.6f", key=key)
                 pu_val = to_pu(actual_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
             else:  # PU → Actual
                 pu_val = st.number_input(f"{qty} ({seq}) PU value (Line {line_idx})", min_value=0.0, value=0.05, format="%.6f", key=key)
                 actual_val = from_pu(pu_val, Z_base=Z_base, I_base=I_base, quantity_type=qty)
-            line_result[f"{qty}_{seq}_Actual"] = actual_val
-            line_result[f"{qty}_{seq}_PU"] = pu_val
+            line_result[f"{qty}_{seq}_Actual ({label_unit})"] = actual_val
+            line_result[f"{qty}_{seq}_PU (pu)"] = pu_val
     results.append(line_result)
 
 # --- Display & Export Results with Summary Metrics ---
@@ -128,7 +136,7 @@ if st.button("Calculate & Export"):
     summary_data = []
     for qty in quantities:
         for seq in sequences:
-            col_name = f"{qty}_{seq}_PU"
+            col_name = f"{qty}_{seq}_PU (pu)"
             max_val = df[col_name].max()
             min_val = df[col_name].min()
             avg_val = df[col_name].mean()
@@ -151,7 +159,7 @@ if st.button("Calculate & Export"):
         mime='text/csv'
     )
 
-    # --- Excel download (includes summary) ---
+    # --- Excel download with summary ---
     towrite = BytesIO()
     with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name="Line Data")
